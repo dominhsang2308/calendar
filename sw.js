@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lich-chung-v1';
+const CACHE_NAME = 'lich-chung-v2';
 const APP_SHELL = [
   '/',
   '/index.html',

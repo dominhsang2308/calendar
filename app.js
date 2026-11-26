@@ -46,6 +46,7 @@ let deferredInstallPrompt = null;
 let syncTimer = null;
 let toastTimer = null;
 let isSyncing = false;
+let lastSyncError = '';
 
 let state = {
   year: initialToday.year,
@@ -154,9 +155,9 @@ function updateSyncStatusUI(customError = '') {
     return;
   }
 
-  if (customError) {
+  if (customError || lastSyncError) {
     dot.className = 'status-dot dot-rose';
-    text.textContent = customError;
+    text.textContent = customError || lastSyncError;
     return;
   }
 
@@ -181,9 +182,15 @@ function updateSyncStatusUI(customError = '') {
   }
 }
 
+function hasAnyData(obj) {
+  if (!obj || typeof obj !== 'object') return false;
+  return Object.values(obj).some((m) => m && typeof m === 'object' && Object.keys(m).length > 0);
+}
+
 // Đẩy các thay đổi đang chờ (khi offline) lên Cloudflare KV rồi kéo bản mới nhất về
 async function syncWithServer({ silent = true } = {}) {
   if (!state.roomCode) {
+    lastSyncError = '';
     updateSyncStatusUI();
     return;
   }
@@ -194,6 +201,7 @@ async function syncWithServer({ silent = true } = {}) {
   if (isSyncing) return;
 
   isSyncing = true;
+  lastSyncError = '';
   updateSyncStatusUI();
 
   try {
@@ -227,19 +235,43 @@ async function syncWithServer({ silent = true } = {}) {
       throw new Error(errData.error || `HTTP ${getRes.status}`);
     }
     const serverDoc = await getRes.json();
-    applyServerDoc(serverDoc);
+
+    // Nếu phòng trên server chưa có dữ liệu nhưng máy đang có lịch cục bộ, tự đẩy lên phòng
+    if (!serverDoc.updatedAt && (hasAnyData(state.schedules) || hasAnyData(state.notes))) {
+      const pushRes = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'restore_backup',
+          room: state.roomCode,
+          schedules: state.schedules,
+          notes: state.notes,
+          updatedBy: state.memberName || 'Thành viên'
+        })
+      });
+      if (!pushRes.ok) {
+        const errData = await pushRes.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${pushRes.status}`);
+      }
+      const pushedDoc = await pushRes.json();
+      applyServerDoc(pushedDoc);
+    } else {
+      applyServerDoc(serverDoc);
+    }
 
     saveState();
     renderAll();
-    updateSyncStatusUI();
     if (!silent) showToast('Đã đồng bộ lịch mới nhất!');
   } catch (err) {
     console.warn('Sync error:', err);
-    updateSyncStatusUI('Lỗi đồng bộ server');
+    lastSyncError = err.message ? err.message.slice(0, 60) : 'Lỗi đồng bộ server';
     if (!silent) showToast(err.message || 'Không kết nối được server đồng bộ.');
   } finally {
     isSyncing = false;
     updateSyncStatusUI();
+    if (state.pendingQueue.length > 0 && navigator.onLine && !lastSyncError) {
+      syncWithServer({ silent: true });
+    }
   }
 }
 
