@@ -19,7 +19,7 @@ function normalizeRoomCode(raw) {
 export async function onRequestPost(context) {
   const { request, env } = context;
 
-  const apiKey = env.GEMINI_API_KEY;
+  const apiKey = String(env.GEMINI_API_KEY || '').trim();
   if (!apiKey) {
     return jsonResponse(
       { error: 'Server chưa cấu hình biến môi trường GEMINI_API_KEY.' },
@@ -102,13 +102,11 @@ export async function onRequestPost(context) {
     }
   };
 
-  const primaryModel = env.GEMINI_MODEL || 'gemini-3-flash-preview';
-  const modelsToTry = primaryModel === 'gemini-2.5-flash'
-    ? ['gemini-2.5-flash']
-    : [primaryModel, 'gemini-2.5-flash'];
+  const primaryModel = String(env.GEMINI_MODEL || 'gemini-2.5-flash').trim();
+  const modelsToTry = Array.from(new Set([primaryModel, 'gemini-2.5-flash', 'gemini-2.0-flash']));
 
   let lastStatus = 500;
-  let lastErrorText = '';
+  let lastErrorMsg = '';
 
   for (const model of modelsToTry) {
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -152,17 +150,24 @@ export async function onRequestPost(context) {
     }
 
     lastStatus = res.status;
-    lastErrorText = await res.text();
-    // Chỉ fallback model khác nếu model chính không tồn tại (404)
-    if (res.status !== 404) {
+    const rawErr = await res.text();
+    try {
+      const parsedErr = JSON.parse(rawErr);
+      lastErrorMsg = parsedErr?.error?.message || rawErr;
+    } catch {
+      lastErrorMsg = rawErr;
+    }
+
+    // Nếu lỗi là API key không hợp lệ thì dừng ngay để báo rõ
+    if (/api key/i.test(lastErrorMsg)) {
       break;
     }
   }
 
   return jsonResponse(
     {
-      error: `Lỗi gọi Gemini API (${lastStatus}).`,
-      detail: lastErrorText.slice(0, 300)
+      error: `Lỗi gọi Gemini API (${lastStatus}): ${lastErrorMsg.slice(0, 160)}`,
+      detail: lastErrorMsg.slice(0, 300)
     },
     lastStatus >= 400 && lastStatus < 600 ? lastStatus : 502
   );

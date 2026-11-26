@@ -1028,8 +1028,9 @@ button, input, textarea {
   display: flex;
   align-items: center;
   gap: 8px;
-  white-space: nowrap;
-  max-width: calc(100vw - 32px);
+  white-space: normal;
+  line-height: 1.35;
+  max-width: min(400px, calc(100vw - 32px));
 }
 
 .toast.visible {
