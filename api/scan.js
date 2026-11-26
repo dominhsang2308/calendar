@@ -34,7 +34,7 @@ export default async function handler(req, res) {
         .map((m) => String(m.name).replace(/^models\//, ''))
         .slice(0, 10);
 
-      const testModel = String(process.env.GEMINI_MODEL || 'gemini-flash-latest').trim();
+      const testModel = String(process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').trim();
       const pingRes = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(testModel)}:generateContent?key=${encodeURIComponent(apiKey)}`,
         {
@@ -193,14 +193,14 @@ export default async function handler(req, res) {
     }
   }
 
-  const primaryModel = String(process.env.GEMINI_MODEL || 'gemini-flash-latest').trim();
+  const primaryModel = String(process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').trim();
   const modelsToTry = Array.from(
     new Set([
       primaryModel,
-      'gemini-flash-latest',
-      'gemini-3-flash-preview',
       'gemini-3.1-flash-lite',
       'gemini-flash-lite-latest',
+      'gemini-3-flash-preview',
+      'gemini-flash-latest',
       'gemini-3.8-flash'
     ])
   );
