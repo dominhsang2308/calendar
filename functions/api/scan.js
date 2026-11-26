@@ -102,51 +102,83 @@ export async function onRequestPost(context) {
     }
   };
 
-  const primaryModel = String(env.GEMINI_MODEL || 'gemini-2.5-flash').trim();
-  const modelsToTry = Array.from(new Set([primaryModel, 'gemini-2.5-flash', 'gemini-2.0-flash']));
+  const primaryModel = String(env.GEMINI_MODEL || 'gemini-3.8-flash').trim();
+  const modelsToTry = Array.from(
+    new Set([primaryModel, 'gemini-3.8-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash'])
+  );
 
   let lastStatus = 500;
   let lastErrorMsg = '';
 
-  for (const model of modelsToTry) {
+  async function callGeminiModel(model) {
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const res = await fetch(apiUrl, {
+    return fetch(apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
+  }
 
+  async function discoverFlashModel() {
+    try {
+      const listRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`
+      );
+      if (!listRes.ok) return null;
+      const listData = await listRes.json();
+      const candidates = (listData.models || []).filter(
+        (m) =>
+          Array.isArray(m.supportedGenerationMethods) &&
+          m.supportedGenerationMethods.includes('generateContent') &&
+          /flash/i.test(m.name || '')
+      );
+      if (candidates.length === 0) return null;
+      // Ưu tiên model flash mới nhất (không phải lite/8b nếu có bản chuẩn)
+      const preferred =
+        candidates.find((m) => /flash$/i.test(m.name)) || candidates[candidates.length - 1];
+      return String(preferred.name || '').replace(/^models\//, '');
+    } catch {
+      return null;
+    }
+  }
+
+  async function parseGeminiSuccess(res) {
+    const result = await res.json();
+    const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) {
+      return jsonResponse({ error: 'AI không trả về dữ liệu.' }, 502);
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return jsonResponse({ error: 'Không thể phân tích JSON từ AI.' }, 502);
+    }
+
+    const shifts = {};
+    for (const entry of parsed.items || []) {
+      const dayNum = Number(entry.day);
+      const code = String(entry.code || '').trim().toUpperCase().slice(0, 10);
+      if (Number.isInteger(dayNum) && dayNum >= 1 && dayNum <= 31 && code) {
+        shifts[dayNum] = code;
+      }
+    }
+
+    const month = Number(parsed.month);
+    const year = Number(parsed.year);
+
+    return jsonResponse({
+      month: Number.isInteger(month) && month >= 1 && month <= 12 ? month : null,
+      year: Number.isInteger(year) && year >= 2000 && year <= 2100 ? year : null,
+      shifts
+    });
+  }
+
+  for (const model of modelsToTry) {
+    const res = await callGeminiModel(model);
     if (res.ok) {
-      const result = await res.json();
-      const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!text) {
-        return jsonResponse({ error: 'AI không trả về dữ liệu.' }, 502);
-      }
-
-      let parsed;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        return jsonResponse({ error: 'Không thể phân tích JSON từ AI.' }, 502);
-      }
-
-      const shifts = {};
-      for (const entry of parsed.items || []) {
-        const dayNum = Number(entry.day);
-        const code = String(entry.code || '').trim().toUpperCase().slice(0, 10);
-        if (Number.isInteger(dayNum) && dayNum >= 1 && dayNum <= 31 && code) {
-          shifts[dayNum] = code;
-        }
-      }
-
-      const month = Number(parsed.month);
-      const year = Number(parsed.year);
-
-      return jsonResponse({
-        month: Number.isInteger(month) && month >= 1 && month <= 12 ? month : null,
-        year: Number.isInteger(year) && year >= 2000 && year <= 2100 ? year : null,
-        shifts
-      });
+      return parseGeminiSuccess(res);
     }
 
     lastStatus = res.status;
@@ -161,6 +193,19 @@ export async function onRequestPost(context) {
     // Nếu lỗi là API key không hợp lệ thì dừng ngay để báo rõ
     if (/api key/i.test(lastErrorMsg)) {
       break;
+    }
+  }
+
+  // Nếu các model mặc định đều báo 404 (đã ngừng hỗ trợ), tự động tìm model Flash đang hoạt động
+  if (lastStatus === 404) {
+    const discovered = await discoverFlashModel();
+    if (discovered && !modelsToTry.includes(discovered)) {
+      const res = await callGeminiModel(discovered);
+      if (res.ok) {
+        return parseGeminiSuccess(res);
+      }
+      lastStatus = res.status;
+      lastErrorMsg = await res.text();
     }
   }
 
