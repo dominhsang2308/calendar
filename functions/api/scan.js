@@ -16,6 +16,24 @@ function normalizeRoomCode(raw) {
   return cleaned;
 }
 
+export async function onRequestGet(context) {
+  const { env } = context;
+  const proxyUrl = String(env.SCAN_PROXY_URL || '').trim();
+  if (!proxyUrl) {
+    return jsonResponse({ ok: false, proxyConfigured: false, error: 'Chưa đặt SCAN_PROXY_URL' }, 200);
+  }
+  try {
+    const res = await fetch(proxyUrl, { method: 'GET' });
+    const text = await res.text();
+    return new Response(text, {
+      status: res.status,
+      headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }
+    });
+  } catch (err) {
+    return jsonResponse({ ok: false, proxyConfigured: true, error: err.message }, 502);
+  }
+}
+
 export async function onRequestPost(context) {
   const { request, env } = context;
 

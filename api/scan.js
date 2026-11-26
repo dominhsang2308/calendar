@@ -1,14 +1,73 @@
+export const maxDuration = 60;
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.status(204).end();
     return;
   }
+
+  const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
+
+  // Chẩn đoán nhanh khi mở /api/scan bằng trình duyệt (GET)
+  if (req.method === 'GET') {
+    if (!apiKey) {
+      res.status(500).json({ ok: false, error: 'Thiếu GEMINI_API_KEY trên Vercel.' });
+      return;
+    }
+    const t0 = Date.now();
+    try {
+      const listRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`,
+        { signal: AbortSignal.timeout(8000) }
+      );
+      const listData = await listRes.json().catch(() => ({}));
+      if (!listRes.ok) {
+        res.status(listRes.status).json({
+          ok: false,
+          ms: Date.now() - t0,
+          error: listData?.error?.message || `HTTP ${listRes.status}`
+        });
+        return;
+      }
+      const flashModels = (listData.models || [])
+        .filter((m) => /flash/i.test(m.name || '') && (m.supportedGenerationMethods || []).includes('generateContent'))
+        .map((m) => String(m.name).replace(/^models\//, ''))
+        .slice(0, 10);
+
+      const testModel = String(process.env.GEMINI_MODEL || 'gemini-3.8-flash').trim();
+      const pingRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(testModel)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: 'Reply with OK' }] }],
+            generationConfig: { thinkingConfig: { thinkingLevel: 'low' }, maxOutputTokens: 8 }
+          }),
+          signal: AbortSignal.timeout(8000)
+        }
+      );
+      const pingBody = await pingRes.json().catch(() => ({}));
+      res.status(200).json({
+        ok: pingRes.ok,
+        region: process.env.VERCEL_REGION || 'unknown',
+        ms: Date.now() - t0,
+        testedModel: testModel,
+        pingStatus: pingRes.status,
+        pingReply: pingBody?.candidates?.[0]?.content?.parts?.[0]?.text || pingBody?.error?.message || null,
+        flashModels
+      });
+    } catch (err) {
+      res.status(504).json({ ok: false, ms: Date.now() - t0, error: err.message });
+    }
+    return;
+  }
+
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method Not Allowed' });
     return;
   }
 
-  const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
   if (!apiKey) {
     res.status(500).json({ error: 'Vercel chưa cấu hình GEMINI_API_KEY.' });
     return;
@@ -35,7 +94,7 @@ export default async function handler(req, res) {
   const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
   const safeMime = allowedMimes.includes(mimeType.toLowerCase()) ? mimeType : 'image/jpeg';
 
-  function buildPayload({ useSchema = true, useMinimalThinking = true } = {}) {
+  function buildPayload({ useSchema = true, thinkingMode = 'minimal' } = {}) {
     const generationConfig = {
       responseMimeType: 'application/json'
     };
@@ -60,8 +119,10 @@ export default async function handler(req, res) {
         required: ['month', 'year', 'items']
       };
     }
-    if (useMinimalThinking) {
+    if (thinkingMode === 'minimal') {
       generationConfig.thinkingConfig = { thinkingLevel: 'minimal' };
+    } else if (thinkingMode === 'low') {
+      generationConfig.thinkingConfig = { thinkingLevel: 'low' };
     }
 
     return {
@@ -93,7 +154,7 @@ export default async function handler(req, res) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(buildPayload(opts)),
-      signal: AbortSignal.timeout(22000)
+      signal: AbortSignal.timeout(9000)
     });
   }
 
@@ -140,7 +201,7 @@ export default async function handler(req, res) {
 
   for (const model of modelsToTry) {
     try {
-      let gemRes = await callGemini(model, { useSchema: true, useMinimalThinking: true });
+      let gemRes = await callGemini(model, { useSchema: true, thinkingMode: 'minimal' });
       if (gemRes.ok) {
         await parseSuccess(gemRes);
         return;
@@ -148,7 +209,7 @@ export default async function handler(req, res) {
 
       let msg = await extractErr(gemRes);
       if (gemRes.status === 400 && !/api key/i.test(msg)) {
-        gemRes = await callGemini(model, { useSchema: true, useMinimalThinking: false });
+        gemRes = await callGemini(model, { useSchema: true, thinkingMode: 'low' });
         if (gemRes.ok) {
           await parseSuccess(gemRes);
           return;
