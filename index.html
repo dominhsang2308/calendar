@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Lịch Chung Của Tụi Mình</title>
+
+  <!-- PWA Meta Tags -->
+  <meta name="theme-color" content="#ffffff" />
+  <meta name="description" content="Lịch làm việc và hẹn hò chung đồng bộ hai máy, hỗ trợ quét ảnh lịch bằng AI." />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Lịch Chung" />
+
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-row">
+        <div class="brand-group">
+          <div class="brand-logo" aria-hidden="true">
+            <span data-icon="calendar-heart" class="icon-md"></span>
+          </div>
+          <div>
+            <div class="brand-title-row">
+              <h1 class="brand-title">Lịch Chung</h1>
+              <button id="room-pill-btn" type="button" onclick="openRoomModal()" class="room-pill" title="Cài đặt phòng chung">
+                <span id="room-pill-text">Chưa ghép đôi</span>
+              </button>
+            </div>
+            <p id="sync-status-line" class="sync-status">
+              <span id="sync-dot" class="status-dot dot-slate"></span>
+              <span id="sync-text">Đang khởi tạo...</span>
+            </p>
+          </div>
+        </div>
+
+        <div class="header-actions">
+          <button id="install-btn" type="button" onclick="triggerInstall()" class="icon-btn hidden text-indigo" title="Cài đặt ứng dụng">
+            <span data-icon="download" class="icon-sm"></span>
+          </button>
+          <button id="refresh-btn" type="button" onclick="manualSync()" class="icon-btn" title="Đồng bộ ngay">
+            <span data-icon="refresh" class="icon-sm"></span>
+          </button>
+          <button type="button" onclick="openRoomModal()" class="icon-btn" title="Phòng chung & Sao lưu">
+            <span data-icon="users" class="icon-sm"></span>
+          </button>
+          <button type="button" onclick="openClearConfirmModal()" class="icon-btn danger" title="Xóa toàn bộ dữ liệu lịch">
+            <span data-icon="trash" class="icon-sm"></span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="app-main">
+      <!-- Banner nhắc ghép phòng nếu chưa có mã phòng -->
+      <section id="setup-room-banner" class="setup-banner hidden">
+        <div class="setup-banner-text">
+          <p class="setup-banner-title">Kết nối 2 máy để dùng Lịch Chung</p>
+          <p class="setup-banner-sub">Tạo một mã phòng bí mật rồi gửi link mời cho bạn gái để hai máy tự đồng bộ.</p>
+        </div>
+        <button type="button" onclick="openRoomModal()" class="btn-primary-sm">Thiết lập</button>
+      </section>
+
+      <!-- Banner gợi ý cài đặt trên iOS Safari -->
+      <section id="ios-install-banner" class="ios-banner hidden">
+        <p class="ios-banner-text">
+          Cài app lên iPhone: bấm nút <strong>Chia sẻ</strong> ở Safari rồi chọn <strong>Thêm vào MH chính</strong>.
+        </p>
+        <button type="button" onclick="dismissIosBanner()" class="ios-close-btn" aria-label="Đóng">
+          <span data-icon="x" class="icon-xs"></span>
+        </button>
+      </section>
+
+      <!-- Thẻ tóm tắt hôm nay & ngày nghỉ -->
+      <section id="summary-card" class="summary-card"></section>
+
+      <!-- Khu vực tải ảnh lịch làm -->
+      <section id="upload-section" class="section-block">
+        <div class="section-head">
+          <h2 class="section-label">Cập nhật lịch mới từ ảnh</h2>
+        </div>
+
+        <label for="schedule-upload" id="dropzone" class="upload-dropzone">
+          <input type="file" id="schedule-upload" accept="image/*" class="hidden" onchange="handleImageUpload(event)" />
+          <div class="upload-row">
+            <div class="upload-icon-box">
+              <span data-icon="image-plus" class="icon-lg"></span>
+            </div>
+            <div class="upload-copy">
+              <p class="upload-title">Tải ảnh chụp lịch làm lên</p>
+              <p class="upload-desc">Chọn ảnh lịch tháng từ thư viện, AI tự bóc tách ngày &amp; ca làm rồi đồng bộ cho cả hai.</p>
+            </div>
+          </div>
+        </label>
+
+        <!-- Trạng thái đang quét AI -->
+        <div id="scanning-box" class="scanning-box hidden">
+          <div class="scanning-row">
+            <div class="scan-thumb-wrap">
+              <img id="preview-thumb" src="" alt="Preview" class="scan-thumb hidden" />
+              <div class="scan-laser animate-scan"></div>
+            </div>
+            <div class="scan-info">
+              <div class="scan-title-row">
+                <span class="scan-ping"></span>
+                <p id="scan-title" class="scan-title">Gemini AI đang đọc ảnh...</p>
+              </div>
+              <p id="scan-subtitle" class="scan-subtitle">Đang nén ảnh và nhận diện từng ô ngày...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Khung xem trước kết quả AI trước khi áp dụng -->
+        <div id="ai-preview-box" class="ai-preview-box hidden">
+          <div class="ai-preview-head">
+            <div>
+              <p class="ai-preview-kicker">Kết quả AI bóc tách được</p>
+              <h3 id="ai-preview-title" class="ai-preview-title">Tháng 11/2026 (0 ngày)</h3>
+            </div>
+            <button type="button" onclick="cancelAiPreview()" class="icon-btn" aria-label="Hủy kết quả">
+              <span data-icon="x" class="icon-sm"></span>
+            </button>
+          </div>
+          <div id="ai-preview-chips" class="ai-preview-chips"></div>
+          <div class="ai-preview-actions">
+            <button type="button" onclick="applyAiPreview('merge')" class="btn-secondary-sm">Gộp vào lịch cũ</button>
+            <button type="button" onclick="applyAiPreview('replace')" class="btn-primary-sm">Thay thế cả tháng</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Khu vực Lịch Tháng -->
+      <section class="calendar-card">
+        <div class="calendar-toolbar">
+          <div class="month-nav">
+            <button type="button" onclick="changeMonth(-1)" aria-label="Tháng trước" class="circle-nav-btn">
+              <span data-icon="chevron-left" class="icon-sm"></span>
+            </button>
+            <h3 id="calendar-month-title" class="month-title">Tháng 11, 2026</h3>
+            <button type="button" onclick="changeMonth(1)" aria-label="Tháng sau" class="circle-nav-btn">
+              <span data-icon="chevron-right" class="icon-sm"></span>
+            </button>
+            <button id="today-jump-btn" type="button" onclick="jumpToToday()" class="today-pill hidden">Hôm nay</button>
+          </div>
+
+          <div class="filter-group">
+            <button id="filter-off-btn" type="button" onclick="toggleOffFilter()" class="filter-pill">
+              <span class="dot-emerald"></span>
+              <span>Ngày nghỉ</span>
+            </button>
+            <button id="filter-note-btn" type="button" onclick="toggleNoteFilter()" class="filter-pill">
+              <span>❤️</span>
+              <span>Lịch hẹn</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="stats-bar" class="stats-bar"></div>
+
+        <div class="weekday-row">
+          <span>T2</span>
+          <span>T3</span>
+          <span>T4</span>
+          <span>T5</span>
+          <span>T6</span>
+          <span class="weekend">T7</span>
+          <span class="weekend">CN</span>
+        </div>
+
+        <div id="calendar-grid" class="calendar-grid"></div>
+
+        <div class="legend-row">
+          <div class="legend-items">
+            <span class="legend-item"><span class="legend-dot bg-emerald"></span> Nghỉ</span>
+            <span class="legend-item"><span class="legend-dot bg-indigo"></span> Ca C/C2</span>
+            <span class="legend-item"><span class="legend-dot bg-amber"></span> Ca B</span>
+            <span class="legend-item"><span class="legend-dot bg-rose"></span> Có hẹn</span>
+          </div>
+          <span class="legend-hint">Chạm ngày để sửa</span>
+        </div>
+      </section>
+
+      <!-- Danh sách ghi chú -->
+      <section class="section-block">
+        <h3 class="section-label px-1">Lịch hẹn &amp; Ghi chú trong tháng</h3>
+        <div id="notes-list" class="notes-list"></div>
+      </section>
+    </main>
+
+    <!-- Toast -->
+    <div id="toast" class="toast" role="status" aria-live="polite">
+      <span data-icon="check-circle" class="icon-sm text-emerald"></span>
+      <span id="toast-msg">Đã cập nhật lịch!</span>
+    </div>
+
+    <!-- Modal chỉnh sửa ngày -->
+    <div id="edit-modal" class="modal-backdrop hidden">
+      <div class="modal-sheet" onclick="event.stopPropagation()">
+        <div class="modal-head">
+          <div>
+            <p id="modal-weekday" class="modal-kicker">Thứ Năm</p>
+            <h4 id="modal-date-title" class="modal-title">Ngày 26 Tháng 11, 2026</h4>
+          </div>
+          <button type="button" onclick="closeModal()" class="circle-nav-btn" aria-label="Đóng">
+            <span data-icon="x" class="icon-sm"></span>
+          </button>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Ký hiệu ca làm (Chạm để đổi nhanh)</label>
+          <div class="shift-grid">
+            <button type="button" onclick="selectQuickShift('OFF')" data-shift="OFF" class="shift-chip">OFF</button>
+            <button type="button" onclick="selectQuickShift('AL')" data-shift="AL" class="shift-chip">AL</button>
+            <button type="button" onclick="selectQuickShift('C')" data-shift="C" class="shift-chip">C</button>
+            <button type="button" onclick="selectQuickShift('C2')" data-shift="C2" class="shift-chip">C2</button>
+            <button type="button" onclick="selectQuickShift('B')" data-shift="B" class="shift-chip">B</button>
+          </div>
+          <div class="custom-shift-row">
+            <input type="text" id="custom-shift-input" maxlength="8" placeholder="Hoặc nhập mã khác (VD: A, HC...)" class="text-input uppercase" oninput="handleCustomShiftInput(this.value)" />
+            <button type="button" onclick="selectQuickShift('')" class="clear-shift-btn">Xóa ca</button>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label for="day-note-input" class="field-label-row">
+            <span>Ghi chú chung / Lịch hẹn</span>
+            <span class="field-hint-rose">Sẽ đánh dấu nổi bật trên lịch ❤️</span>
+          </label>
+          <div class="quick-tags">
+            <button type="button" onclick="appendQuickNote('Đi ăn tối 🍜')" class="tag-btn tag-rose">Đi ăn tối 🍜</button>
+            <button type="button" onclick="appendQuickNote('Xem phim 🎬')" class="tag-btn tag-amber">Xem phim 🎬</button>
+            <button type="button" onclick="appendQuickNote('Đón tan làm 🛵')" class="tag-btn tag-indigo">Đón tan làm 🛵</button>
+            <button type="button" onclick="appendQuickNote('Đi cafe ☕')" class="tag-btn tag-emerald">Đi cafe ☕</button>
+          </div>
+          <textarea id="day-note-input" rows="2" placeholder="VD: Hôm nay anh qua đón nhé, hoặc đi ăn tối cùng nhau..." class="textarea-input"></textarea>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" onclick="closeModal()" class="btn-secondary">Hủy</button>
+          <button type="button" onclick="saveDayEdit()" class="btn-primary">Lưu thay đổi</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Phòng Chung & Sao lưu -->
+    <div id="room-modal" class="modal-backdrop hidden">
+      <div class="modal-sheet" onclick="event.stopPropagation()">
+        <div class="modal-head">
+          <div>
+            <p class="modal-kicker">Đồng bộ 2 máy</p>
+            <h4 class="modal-title">Phòng Lịch Chung</h4>
+          </div>
+          <button type="button" onclick="closeRoomModal()" class="circle-nav-btn" aria-label="Đóng">
+            <span data-icon="x" class="icon-sm"></span>
+          </button>
+        </div>
+
+        <div class="field-group">
+          <label for="member-name-input" class="field-label">Tên của bạn (để biết ai vừa cập nhật)</label>
+          <input type="text" id="member-name-input" maxlength="24" placeholder="VD: Anh, Em, Minh, Lan..." class="text-input" />
+        </div>
+
+        <div class="field-group">
+          <label for="room-code-input" class="field-label">Mã phòng bí mật (2 máy nhập giống nhau)</label>
+          <div class="custom-shift-row">
+            <input type="text" id="room-code-input" maxlength="40" placeholder="VD: minh-lan-2026 (4-40 ký tự)" class="text-input lowercase" />
+            <button type="button" onclick="generateRandomRoomCode()" class="btn-secondary-sm">Tạo mã</button>
+          </div>
+          <p class="helper-text">Chỉ dùng chữ thường không dấu, số, dấu gạch ngang (-) hoặc gạch dưới (_).</p>
+        </div>
+
+        <div id="invite-link-box" class="invite-box hidden">
+          <p class="field-label">Link mời nhanh cho người kia</p>
+          <div class="custom-shift-row">
+            <input type="text" id="invite-link-input" readonly class="text-input readonly-input" />
+            <button type="button" onclick="copyInviteLink()" class="btn-primary-sm">Sao chép</button>
+          </div>
+        </div>
+
+        <div class="backup-box">
+          <p class="field-label">Sao lưu &amp; Khôi phục dữ liệu</p>
+          <div class="backup-actions">
+            <button type="button" onclick="exportBackupJson()" class="btn-secondary-sm">Xuất file JSON</button>
+            <label class="btn-secondary-sm cursor-pointer text-center">
+              Nhập file JSON
+              <input type="file" accept="application/json,.json" class="hidden" onchange="importBackupJson(event)" />
+            </label>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" onclick="closeRoomModal()" class="btn-secondary">Đóng</button>
+          <button type="button" onclick="saveRoomSettings()" class="btn-primary">Kết nối phòng</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal xác nhận xóa toàn bộ dữ liệu -->
+    <div id="confirm-clear-modal" class="modal-backdrop hidden">
+      <div class="modal-sheet" onclick="event.stopPropagation()">
+        <div class="modal-head">
+          <div>
+            <p class="modal-kicker text-rose">Cảnh báo</p>
+            <h4 class="modal-title">Xóa toàn bộ lịch?</h4>
+          </div>
+          <button type="button" onclick="closeClearConfirmModal()" class="circle-nav-btn" aria-label="Đóng">
+            <span data-icon="x" class="icon-sm"></span>
+          </button>
+        </div>
+        <p class="confirm-text">
+          Hành động này sẽ xóa sạch toàn bộ ca làm và ghi chú hẹn hò của cả hai máy trong phòng hiện tại. Bạn chắc chắn muốn xóa chứ?
+        </p>
+        <div class="modal-actions">
+          <button type="button" onclick="closeClearConfirmModal()" class="btn-secondary">Giữ lại</button>
+          <button type="button" onclick="confirmClearAllData()" class="btn-danger">Xóa toàn bộ</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

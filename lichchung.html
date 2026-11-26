@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lịch Chung Của Tụi Mình</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #f1f5f9;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Hiệu ứng tia quét AI trên ảnh xem trước */
+    @keyframes scanline {
+      0% { top: 0%; opacity: 0.9; }
+      50% { top: 92%; opacity: 1; }
+      100% { top: 0%; opacity: 0.9; }
+    }
+    .animate-scan {
+      animation: scanline 1.6s ease-in-out infinite;
+    }
+
+    /* Ẩn thanh cuộn cho các dải chip ngang */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex justify-center items-start sm:py-6 bg-slate-100 text-slate-800">
+
+  <!-- Khung ứng dụng chuẩn Mobile-first -->
+  <div id="app" class="w-full max-w-md min-h-screen sm:min-h-[820px] sm:rounded-[36px] bg-white sm:shadow-2xl sm:border sm:border-slate-200/80 flex flex-col relative overflow-hidden">
+
+    <!-- Thanh trạng thái & Header -->
+    <header class="px-5 pt-5 pb-3.5 bg-white/95 backdrop-blur-md sticky top-0 z-20 border-b border-slate-100">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-2xl bg-gradient-to-tr from-rose-500 to-indigo-500 flex items-center justify-center text-white shadow-sm">
+            <i data-lucide="calendar-heart" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h1 class="text-base font-bold text-slate-900 leading-tight">Lịch Chung</h1>
+            <p class="text-[11px] font-medium text-emerald-600 flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              Đã đồng bộ real-time
+            </p>
+          </div>
+        </div>
+
+        <!-- Nút xóa toàn bộ dữ liệu -->
+        <button onclick="clearAllData()" title="Xóa toàn bộ dữ liệu lịch" class="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition">
+          <i data-lucide="trash-2" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- Nội dung chính cuộn mượt -->
+    <main class="flex-1 px-5 py-4 space-y-4 overflow-y-auto pb-24">
+
+      <!-- Thẻ tóm tắt trạng thái hôm nay & Ngày rảnh sắp tới -->
+      <section id="summary-card" class="rounded-3xl p-4 bg-gradient-to-br from-indigo-50 via-white to-rose-50 border border-indigo-100/80 shadow-sm">
+        <!-- Render bằng JS -->
+      </section>
+
+      <!-- Khu vực Tải ảnh lịch làm -->
+      <section id="upload-section" class="space-y-2.5">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400">Cập nhật lịch mới từ ảnh</h2>
+        </div>
+
+        <!-- Vùng chọn file ảnh -->
+        <label for="schedule-upload" id="dropzone" class="block cursor-pointer rounded-3xl border-2 border-dashed border-slate-200 hover:border-indigo-400 bg-slate-50/70 hover:bg-indigo-50/30 p-4 transition-all group">
+          <input type="file" id="schedule-upload" accept="image/*" class="hidden" onchange="handleImageUpload(event)" />
+          <div class="flex items-center gap-3.5">
+            <div class="w-12 h-12 rounded-2xl bg-white shadow-sm border border-slate-100 flex items-center justify-center text-indigo-600 group-hover:scale-105 transition-transform shrink-0">
+              <i data-lucide="image-plus" class="w-6 h-6"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-bold text-slate-800">Tải ảnh chụp lịch làm lên</p>
+              <p class="text-xs text-slate-500 mt-0.5 leading-relaxed">Chọn ảnh lịch tháng từ thư viện, AI tự bóc tách ngày & ca làm.</p>
+            </div>
+          </div>
+        </label>
+
+        <!-- Khung trạng thái đang quét AI (Ẩn mặc định) -->
+        <div id="scanning-box" class="hidden rounded-3xl bg-slate-900 text-white p-4 shadow-lg relative overflow-hidden">
+          <div class="flex items-center gap-3.5 relative z-10">
+            <div class="w-14 h-16 rounded-xl bg-slate-800 overflow-hidden relative border border-slate-700 shrink-0 flex items-center justify-center">
+              <img id="preview-thumb" src="" alt="Preview" class="w-full h-full object-cover opacity-80 hidden" />
+              <!-- Tia laser quét -->
+              <div class="absolute left-0 right-0 h-0.5 bg-emerald-400 shadow-[0_0_8px_#34d399] animate-scan"></div>
+            </div>
+            <div class="flex-1">
+              <div class="flex items-center gap-2">
+                <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                <p id="scan-title" class="text-sm font-bold text-white">AI đang đọc lịch...</p>
+              </div>
+              <p id="scan-subtitle" class="text-xs text-slate-300 mt-1">Đang nhận diện từng ô ngày và ký hiệu ca (C, C2, B, OFF...)</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Khu vực Hiển thị Lịch Tháng -->
+      <section class="rounded-3xl bg-white border border-slate-200/90 p-4 shadow-xs space-y-3.5">
+        <!-- Thanh điều hướng tháng & Bộ lọc -->
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <div class="flex items-center gap-1.5">
+            <button onclick="changeMonth(-1)" aria-label="Tháng trước" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition">
+              <i data-lucide="chevron-left" class="w-4 h-4"></i>
+            </button>
+            <h3 id="calendar-month-title" class="text-sm font-extrabold text-slate-900 min-w-[112px] text-center">Tháng 11, 2026</h3>
+            <button onclick="changeMonth(1)" aria-label="Tháng sau" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition">
+              <i data-lucide="chevron-right" class="w-4 h-4"></i>
+            </button>
+          </div>
+
+          <!-- Bộ lọc xem nhanh ngày rảnh & ngày có lịch hẹn -->
+          <div class="flex items-center gap-1.5">
+            <button id="filter-off-btn" onclick="toggleOffFilter()" class="px-2.5 py-1.5 rounded-full text-[11px] font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center gap-1 transition">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span>Ngày nghỉ</span>
+            </button>
+            <button id="filter-note-btn" onclick="toggleNoteFilter()" class="px-2.5 py-1.5 rounded-full text-[11px] font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center gap-1 transition">
+              <span>❤️</span>
+              <span>Lịch hẹn</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Thanh thống kê số ca làm / ngày nghỉ -->
+        <div id="stats-bar" class="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500 bg-slate-50 px-3 py-2 rounded-2xl">
+          <!-- Render bằng JS -->
+        </div>
+
+        <!-- Tiêu đề các thứ trong tuần (Thứ 2 -> Chủ Nhật) -->
+        <div class="grid grid-cols-7 text-center pt-1">
+          <span class="text-[11px] font-bold text-slate-400">T2</span>
+          <span class="text-[11px] font-bold text-slate-400">T3</span>
+          <span class="text-[11px] font-bold text-slate-400">T4</span>
+          <span class="text-[11px] font-bold text-slate-400">T5</span>
+          <span class="text-[11px] font-bold text-slate-400">T6</span>
+          <span class="text-[11px] font-bold text-rose-500">T7</span>
+          <span class="text-[11px] font-bold text-rose-500">CN</span>
+        </div>
+
+        <!-- Lưới các ngày trong tháng -->
+        <div id="calendar-grid" class="grid grid-cols-7 gap-y-2 gap-x-1">
+          <!-- Render bằng JS -->
+        </div>
+
+        <!-- Chú thích màu sắc -->
+        <div class="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+          <div class="flex items-center gap-2.5">
+            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Nghỉ</span>
+            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-indigo-500"></span> Ca C/C2</span>
+            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Ca B</span>
+            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span> Có hẹn</span>
+          </div>
+          <span class="text-slate-400 italic">Chạm ngày để sửa</span>
+        </div>
+      </section>
+
+      <!-- Danh sách ghi chú / Hẹn hò trong tháng -->
+      <section class="space-y-2">
+        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 px-1">Lịch hẹn & Ghi chú trong tháng</h3>
+        <div id="notes-list" class="space-y-2">
+          <!-- Render bằng JS -->
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Toast thông báo mượt mà -->
+    <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/95 text-white text-xs font-medium px-4 py-2.5 rounded-full shadow-xl opacity-0 pointer-events-none transition-all duration-300 z-50 flex items-center gap-2 whitespace-nowrap">
+      <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i>
+      <span id="toast-msg">Đã cập nhật lịch!</span>
+    </div>
+
+    <!-- Bottom Sheet / Modal Chỉnh sửa ca & Thêm ghi chú cho ngày -->
+    <div id="edit-modal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-40 hidden items-end sm:items-center justify-center transition-opacity">
+      <div class="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl space-y-4 transform transition-transform" onclick="event.stopPropagation()">
+        <div class="flex items-center justify-between">
+          <div>
+            <p id="modal-weekday" class="text-xs font-semibold text-indigo-600 uppercase tracking-wide">Thứ Năm</p>
+            <h4 id="modal-date-title" class="text-lg font-extrabold text-slate-900">26 Tháng 11, 2026</h4>
+          </div>
+          <button onclick="closeModal()" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <!-- Chọn nhanh mã ca -->
+        <div class="space-y-2">
+          <label class="text-xs font-bold text-slate-500 block">Ký hiệu ca làm (Chạm để đổi nhanh)</label>
+          <div class="grid grid-cols-5 gap-2">
+            <button type="button" onclick="selectQuickShift('OFF')" data-shift="OFF" class="shift-chip py-2.5 rounded-2xl text-xs font-bold border transition">OFF</button>
+            <button type="button" onclick="selectQuickShift('AL')" data-shift="AL" class="shift-chip py-2.5 rounded-2xl text-xs font-bold border transition">AL</button>
+            <button type="button" onclick="selectQuickShift('C')" data-shift="C" class="shift-chip py-2.5 rounded-2xl text-xs font-bold border transition">C</button>
+            <button type="button" onclick="selectQuickShift('C2')" data-shift="C2" class="shift-chip py-2.5 rounded-2xl text-xs font-bold border transition">C2</button>
+            <button type="button" onclick="selectQuickShift('B')" data-shift="B" class="shift-chip py-2.5 rounded-2xl text-xs font-bold border transition">B</button>
+          </div>
+          <div class="pt-1 flex items-center gap-2">
+            <input type="text" id="custom-shift-input" maxlength="6" placeholder="Hoặc nhập mã khác (VD: A, HC...)" class="flex-1 text-xs font-semibold px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 focus:outline-none focus:border-indigo-500 uppercase" oninput="handleCustomShiftInput(this.value)" />
+            <button type="button" onclick="selectQuickShift('')" class="px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-100">Xóa ca</button>
+          </div>
+        </div>
+
+        <!-- Ghi chú chung cho hai người -->
+        <div class="space-y-2">
+          <label for="day-note-input" class="text-xs font-bold text-slate-500 flex items-center justify-between">
+            <span>Ghi chú chung / Lịch hẹn</span>
+            <span class="text-[11px] font-normal text-rose-500">Sẽ đánh dấu nổi bật trên lịch ❤️</span>
+          </label>
+          <!-- Gợi ý tag nhanh -->
+          <div class="flex flex-wrap gap-1.5">
+            <button type="button" onclick="appendQuickNote('Đi ăn tối 🍜')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-600 border border-rose-200/80 hover:bg-rose-100 transition">Đi ăn tối 🍜</button>
+            <button type="button" onclick="appendQuickNote('Xem phim 🎬')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200/80 hover:bg-amber-100 transition">Xem phim 🎬</button>
+            <button type="button" onclick="appendQuickNote('Đón tan làm 🛵')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-600 border border-indigo-200/80 hover:bg-indigo-100 transition">Đón tan làm 🛵</button>
+            <button type="button" onclick="appendQuickNote('Đi cafe ☕')" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80 hover:bg-emerald-100 transition">Đi cafe ☕</button>
+          </div>
+          <textarea id="day-note-input" rows="2" placeholder="VD: Hôm nay anh qua đón nhé, hoặc đi ăn tối cùng nhau..." class="w-full text-sm px-3.5 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 focus:outline-none focus:border-rose-400 resize-none"></textarea>
+        </div>
+
+        <div class="flex gap-2.5 pt-1">
+          <button onclick="closeModal()" class="flex-1 py-3 rounded-2xl text-sm font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 transition">Hủy</button>
+          <button onclick="saveDayEdit()" class="flex-1 py-3 rounded-2xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200 transition">Lưu thay đổi</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // Lấy tháng và năm hiện tại của hệ thống
+    const now = new Date();
+    const CURRENT_YEAR = now.getFullYear();
+    const CURRENT_MONTH = now.getMonth() + 1;
+    const CURRENT_DAY = now.getDate();
+
+    // Trạng thái ứng dụng sạch (không chứa dữ liệu mẫu)
+    let state = {
+      year: CURRENT_YEAR,
+      month: CURRENT_MONTH, // 1 - 12
+      filterMode: 'all', // 'all' | 'off' | 'note'
+      schedules: {},
+      notes: {},
+      editingDay: null,
+      selectedShiftDraft: ""
+    };
+
+    // Khởi tạo từ localStorage nếu có
+    function loadState() {
+      try {
+        const saved = localStorage.getItem('lich_chung_clean_v1');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          state.schedules = parsed.schedules || {};
+          state.notes = parsed.notes || {};
+          state.year = parsed.year || CURRENT_YEAR;
+          state.month = parsed.month || CURRENT_MONTH;
+        }
+      } catch (e) {
+        console.warn("Không thể đọc localStorage", e);
+      }
+    }
+
+    function saveState() {
+      try {
+        localStorage.setItem('lich_chung_clean_v1', JSON.stringify({
+          schedules: state.schedules,
+          notes: state.notes,
+          year: state.year,
+          month: state.month
+        }));
+      } catch (e) {
+        console.warn("Không thể lưu localStorage", e);
+      }
+    }
+
+    function clearAllData() {
+      state.year = CURRENT_YEAR;
+      state.month = CURRENT_MONTH;
+      state.schedules = {};
+      state.notes = {};
+      state.filterMode = 'all';
+      updateFilterButtonsUI();
+      saveState();
+      renderAll();
+      showToast("Đã xóa toàn bộ dữ liệu lịch!");
+    }
+
+    function getMonthKey(year = state.year, month = state.month) {
+      return `${year}-${String(month).padStart(2, '0')}`;
+    }
+
+    // Chuyển tháng
+    function changeMonth(delta) {
+      let m = state.month + delta;
+      let y = state.year;
+      if (m > 12) { m = 1; y++; }
+      if (m < 1) { m = 12; y--; }
+      state.month = m;
+      state.year = y;
+      renderAll();
+    }
+
+    // Bật/tắt lọc chỉ hiện ngày nghỉ
+    function toggleOffFilter() {
+      state.filterMode = state.filterMode === 'off' ? 'all' : 'off';
+      updateFilterButtonsUI();
+      renderCalendar();
+    }
+
+    // Bật/tắt lọc chỉ hiện ngày có lịch hẹn / ghi chú
+    function toggleNoteFilter() {
+      state.filterMode = state.filterMode === 'note' ? 'all' : 'note';
+      updateFilterButtonsUI();
+      renderCalendar();
+    }
+
+    function updateFilterButtonsUI() {
+      const offBtn = document.getElementById('filter-off-btn');
+      const noteBtn = document.getElementById('filter-note-btn');
+
+      if (state.filterMode === 'off') {
+        offBtn.className = "px-2.5 py-1.5 rounded-full text-[11px] font-bold bg-emerald-600 text-white border border-emerald-600 flex items-center gap-1 transition shadow-xs";
+      } else {
+        offBtn.className = "px-2.5 py-1.5 rounded-full text-[11px] font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center gap-1 transition";
+      }
+
+      if (state.filterMode === 'note') {
+        noteBtn.className = "px-2.5 py-1.5 rounded-full text-[11px] font-bold bg-rose-500 text-white border border-rose-500 flex items-center gap-1 transition shadow-xs";
+      } else {
+        noteBtn.className = "px-2.5 py-1.5 rounded-full text-[11px] font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center gap-1 transition";
+      }
+    }
+
+    // Phân loại màu sắc cho từng mã ca
+    function getShiftStyle(code) {
+      if (!code) return null;
+      const c = code.toUpperCase().trim();
+      if (c === 'OFF' || c === 'AL') {
+        return {
+          badge: 'bg-emerald-100 text-emerald-700 border border-emerald-200/80',
+          cellBg: 'bg-emerald-50/60',
+          isOff: true
+        };
+      }
+      if (c === 'B') {
+        return {
+          badge: 'bg-amber-100 text-amber-800 border border-amber-200/80',
+          cellBg: '',
+          isOff: false
+        };
+      }
+      if (c === 'C' || c === 'C2') {
+        return {
+          badge: 'bg-indigo-100 text-indigo-700 border border-indigo-200/80',
+          cellBg: '',
+          isOff: false
+        };
+      }
+      return {
+        badge: 'bg-purple-100 text-purple-700 border border-purple-200/80',
+        cellBg: '',
+        isOff: false
+      };
+    }
+
+    // Render thẻ tóm tắt hôm nay & ngày rảnh tiếp theo
+    function renderSummary() {
+      const container = document.getElementById('summary-card');
+      const todayKey = getMonthKey(CURRENT_YEAR, CURRENT_MONTH);
+      const todayMonthData = state.schedules[todayKey] || {};
+      const todayShift = todayMonthData[CURRENT_DAY] || "";
+      const hasTodayShift = todayShift.trim() !== "";
+      const isTodayOff = hasTodayShift && ['OFF', 'AL'].includes(todayShift.toUpperCase());
+
+      // Tìm các ngày OFF / AL trong tháng đang xem
+      const currentMonthData = state.schedules[getMonthKey()] || {};
+      const offDays = Object.entries(currentMonthData)
+        .filter(([_, val]) => ['OFF', 'AL'].includes((val || '').toUpperCase()))
+        .sort((a, b) => Number(a[0]) - Number(b[0]))
+        .map(([d, val]) => `${d}/${state.month} (${val.toUpperCase()})`);
+
+      let todayBadgeHtml = `<span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-200/80 text-slate-600">Chưa có lịch</span>`;
+      if (hasTodayShift) {
+        todayBadgeHtml = `<span class="px-2.5 py-0.5 rounded-full text-xs font-extrabold ${isTodayOff ? 'bg-emerald-500 text-white' : 'bg-indigo-600 text-white'}">
+          ${isTodayOff ? `Nghỉ (${todayShift})` : `Ca ${todayShift}`}
+        </span>`;
+      }
+
+      container.innerHTML = `
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <p class="text-xs font-medium text-slate-500 mb-1">Lịch làm việc & hẹn hò chung của tụi mình ✨</p>
+            <div class="flex items-center gap-2 mt-1.5">
+              <span class="text-xs font-bold text-slate-700">Hôm nay (${CURRENT_DAY}/${CURRENT_MONTH}):</span>
+              ${todayBadgeHtml}
+            </div>
+          </div>
+          <div class="w-10 h-10 rounded-2xl bg-white shadow-xs border border-slate-100 flex items-center justify-center text-lg shrink-0">
+            ${!hasTodayShift ? '📅' : (isTodayOff ? '🥳' : '💼')}
+          </div>
+        </div>
+        <div class="mt-3 pt-2.5 border-t border-indigo-100/80 flex items-center gap-2 overflow-x-auto no-scrollbar">
+          <span class="text-[11px] font-bold text-emerald-700 whitespace-nowrap flex items-center gap-1">
+            <i data-lucide="sun" class="w-3.5 h-3.5"></i> Ngày nghỉ T${state.month}:
+          </span>
+          <div class="flex items-center gap-1.5">
+            ${offDays.length > 0
+              ? offDays.map(d => `<span class="px-2 py-0.5 rounded-lg bg-white text-emerald-700 border border-emerald-200 text-[11px] font-bold whitespace-nowrap">${d}</span>`).join('')
+              : `<span class="text-[11px] text-slate-400">Chưa có dữ liệu</span>`
+            }
+          </div>
+        </div>
+      `;
+      lucide.createIcons();
+    }
+
+    // Render lưới lịch tháng
+    function renderCalendar() {
+      const monthNames = ["", "Tháng 1", "Tháng 2", "Tháng 3", "Tháng 4", "Tháng 5", "Tháng 6", "Tháng 7", "Tháng 8", "Tháng 9", "Tháng 10", "Tháng 11", "Tháng 12"];
+      document.getElementById('calendar-month-title').textContent = `${monthNames[state.month]}, ${state.year}`;
+
+      const key = getMonthKey();
+      const monthData = state.schedules[key] || {};
+      const monthNotes = state.notes[key] || {};
+
+      // Tính thống kê số ca làm & ngày nghỉ
+      let workCount = 0;
+      let offCount = 0;
+      let alCount = 0;
+      Object.values(monthData).forEach(val => {
+        if (!val) return;
+        const up = val.toUpperCase();
+        if (up === 'OFF') offCount++;
+        else if (up === 'AL') alCount++;
+        else workCount++;
+      });
+      const noteCount = Object.values(monthNotes).filter(v => v && v.trim() !== '').length;
+
+      document.getElementById('stats-bar').innerHTML = `
+        <span class="font-bold text-slate-700">${workCount} ca làm</span>
+        <span>·</span>
+        <span class="text-emerald-600 font-bold">${offCount} ngày OFF</span>
+        ${alCount > 0 ? `<span>·</span><span class="text-teal-600 font-bold">${alCount} ngày AL</span>` : ''}
+        ${noteCount > 0 ? `<span>·</span><span class="text-rose-500 font-bold">❤️ ${noteCount} lịch hẹn</span>` : ''}
+      `;
+
+      // Tính ngày đầu tháng (Quy đổi Chủ nhật = 6, Thứ 2 = 0)
+      const firstDayJs = new Date(state.year, state.month - 1, 1).getDay();
+      const startOffset = firstDayJs === 0 ? 6 : firstDayJs - 1;
+      const daysInMonth = new Date(state.year, state.month, 0).getDate();
+
+      const grid = document.getElementById('calendar-grid');
+      grid.innerHTML = '';
+
+      // Các ô trống đầu tháng
+      for (let i = 0; i < startOffset; i++) {
+        grid.innerHTML += `<div class="h-[68px]"></div>`;
+      }
+
+      // Render từng ngày
+      for (let day = 1; day <= daysInMonth; day++) {
+        const shift = monthData[day] || '';
+        const note = (monthNotes[day] || '').trim();
+        const hasNote = note.length > 0;
+        const style = getShiftStyle(shift);
+        const isWeekend = ((startOffset + day - 1) % 7) >= 5;
+        const isToday = (state.year === CURRENT_YEAR && state.month === CURRENT_MONTH && day === CURRENT_DAY);
+
+        // Xử lý làm mờ khi đang bật bộ lọc
+        let dimmed = false;
+        if (state.filterMode === 'off' && (!style || !style.isOff)) dimmed = true;
+        if (state.filterMode === 'note' && !hasNote) dimmed = true;
+
+        // Xác định style khung ô ngày (ưu tiên markup nổi bật nếu có ghi chú / lịch hẹn)
+        let cellBorderAndBg = 'border-transparent hover:border-slate-200 ' + (style ? style.cellBg : 'hover:bg-slate-50');
+        if (hasNote) {
+          cellBorderAndBg = 'border-rose-300 ring-2 ring-rose-400/70 bg-gradient-to-b from-rose-50/90 via-white to-amber-50/60 shadow-xs';
+        }
+        if (isToday) {
+          cellBorderAndBg += hasNote
+            ? ' outline-2 outline-offset-1 outline-slate-900'
+            : ' border-slate-900 ring-2 ring-slate-900/15 bg-white shadow-xs';
+        }
+
+        const cell = document.createElement('button');
+        cell.type = 'button';
+        cell.id = `cal-day-${day}`;
+        cell.onclick = () => openEditModal(day);
+        cell.className = `h-[68px] rounded-2xl flex flex-col items-center justify-between py-1 px-0.5 transition-all relative border ${cellBorderAndBg} ${dimmed ? 'opacity-25 scale-95' : 'opacity-100'}`;
+
+        cell.innerHTML = `
+          <div class="flex items-center justify-center relative w-full">
+            <span class="text-[11px] font-bold leading-none ${
+              isToday
+                ? 'w-4 h-4 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px]'
+                : (hasNote ? 'text-rose-700 font-extrabold' : (isWeekend ? 'text-rose-500' : 'text-slate-700'))
+            }">${day}</span>
+            ${hasNote
+              ? `<span class="absolute right-0.5 -top-0.5 text-[10px] leading-none drop-shadow-2xs" title="Có ghi chú / lịch hẹn">❤️</span>`
+              : ''
+            }
+          </div>
+          ${shift
+            ? `<span class="w-full max-w-[42px] truncate text-center text-[9px] font-extrabold py-0.5 px-1 rounded-full leading-tight ${style.badge}">${shift}</span>`
+            : `<span class="h-3.5"></span>`
+          }
+          ${hasNote
+            ? `<span class="w-full truncate text-center text-[8.5px] font-bold px-1 py-0.5 rounded-md bg-rose-500 text-white leading-none shadow-2xs">${note}</span>`
+            : `<span class="h-3"></span>`
+          }
+        `;
+        grid.appendChild(cell);
+      }
+    }
+
+    // Nhảy và làm nổi bật ô ngày trên lịch khi bấm từ danh sách ghi chú bên dưới
+    function focusCalendarDay(day) {
+      if (state.filterMode !== 'all') {
+        state.filterMode = 'all';
+        updateFilterButtonsUI();
+        renderCalendar();
+      }
+      const el = document.getElementById(`cal-day-${day}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('scale-110', 'z-10');
+        setTimeout(() => {
+          el.classList.remove('scale-110', 'z-10');
+        }, 700);
+      }
+    }
+
+    // Render danh sách ghi chú tháng này
+    function renderNotesList() {
+      const key = getMonthKey();
+      const monthNotes = state.notes[key] || {};
+      const monthData = state.schedules[key] || {};
+      const container = document.getElementById('notes-list');
+
+      const entries = Object.entries(monthNotes).filter(([_, text]) => text && text.trim() !== '');
+      if (entries.length === 0) {
+        container.innerHTML = `
+          <div class="rounded-2xl border border-dashed border-slate-200 p-4 text-center text-xs text-slate-400">
+            Chưa có ghi chú nào trong tháng này. Chạm vào một ngày trên lịch để thêm lời nhắn nhé!
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = entries.map(([day, text]) => {
+        const shift = monthData[day] || '';
+        return `
+          <div onclick="focusCalendarDay(${day})" class="cursor-pointer rounded-2xl bg-gradient-to-r from-rose-50/60 to-white border border-rose-200/80 p-3 flex items-center justify-between gap-3 hover:border-rose-400 transition shadow-2xs group">
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="w-10 h-10 rounded-xl bg-rose-500 text-white flex flex-col items-center justify-center shrink-0 shadow-xs">
+                <span class="text-[9px] font-bold uppercase opacity-90">T${state.month}</span>
+                <span class="text-sm font-extrabold leading-none">${day}</span>
+              </div>
+              <div class="min-w-0">
+                <p class="text-xs font-bold text-slate-800 truncate">${text}</p>
+                <p class="text-[11px] text-slate-500 mt-0.5">${shift ? `Lịch làm: <span class="font-bold text-slate-700">${shift}</span>` : 'Chưa gắn ca'}</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-1 shrink-0">
+              <button type="button" onclick="event.stopPropagation(); openEditModal(${day})" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-white border border-slate-200 text-slate-600 hover:text-indigo-600 hover:border-indigo-300 transition">
+                Sửa
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+      lucide.createIcons();
+    }
+
+    function renderAll() {
+      renderSummary();
+      renderCalendar();
+      renderNotesList();
+    }
+
+    // Mở modal chỉnh sửa ngày
+    function openEditModal(day) {
+      state.editingDay = day;
+      const key = getMonthKey();
+      const currentShift = (state.schedules[key] && state.schedules[key][day]) || '';
+      const currentNote = (state.notes[key] && state.notes[key][day]) || '';
+
+      const dateObj = new Date(state.year, state.month - 1, day);
+      const weekdays = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
+      document.getElementById('modal-weekday').textContent = weekdays[dateObj.getDay()];
+      document.getElementById('modal-date-title').textContent = `Ngày ${day} Tháng ${state.month}, ${state.year}`;
+      document.getElementById('day-note-input').value = currentNote;
+      document.getElementById('custom-shift-input').value = ['OFF', 'AL', 'C', 'C2', 'B'].includes(currentShift.toUpperCase()) ? '' : currentShift;
+
+      selectQuickShift(currentShift);
+
+      const modal = document.getElementById('edit-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeModal() {
+      const modal = document.getElementById('edit-modal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+      state.editingDay = null;
+    }
+
+    // Đóng modal khi bấm ra vùng tối bên ngoài
+    document.getElementById('edit-modal').addEventListener('click', closeModal);
+
+    function selectQuickShift(shift) {
+      state.selectedShiftDraft = shift.toUpperCase();
+      if (!['OFF', 'AL', 'C', 'C2', 'B', ''].includes(state.selectedShiftDraft)) {
+        document.getElementById('custom-shift-input').value = state.selectedShiftDraft;
+      } else if (shift !== '') {
+        document.getElementById('custom-shift-input').value = '';
+      }
+
+      document.querySelectorAll('.shift-chip').forEach(btn => {
+        const val = btn.getAttribute('data-shift');
+        if (val === state.selectedShiftDraft) {
+          btn.className = "shift-chip py-2.5 rounded-2xl text-xs font-extrabold border-2 border-indigo-600 bg-indigo-50 text-indigo-700 transition scale-105";
+        } else {
+          btn.className = "shift-chip py-2.5 rounded-2xl text-xs font-bold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition";
+        }
+      });
+    }
+
+    function handleCustomShiftInput(val) {
+      state.selectedShiftDraft = val.toUpperCase().trim();
+      document.querySelectorAll('.shift-chip').forEach(btn => {
+        btn.className = "shift-chip py-2.5 rounded-2xl text-xs font-bold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition";
+      });
+    }
+
+    // Chèn nhanh gợi ý lịch hẹn vào ô ghi chú
+    function appendQuickNote(tagText) {
+      const input = document.getElementById('day-note-input');
+      const current = input.value.trim();
+      if (!current) {
+        input.value = tagText;
+      } else if (!current.includes(tagText)) {
+        input.value = `${current} · ${tagText}`;
+      }
+      input.focus();
+    }
+
+    function saveDayEdit() {
+      if (!state.editingDay) return;
+      const key = getMonthKey();
+      if (!state.schedules[key]) state.schedules[key] = {};
+      if (!state.notes[key]) state.notes[key] = {};
+
+      if (state.selectedShiftDraft) {
+        state.schedules[key][state.editingDay] = state.selectedShiftDraft;
+      } else {
+        delete state.schedules[key][state.editingDay];
+      }
+
+      const noteVal = document.getElementById('day-note-input').value.trim();
+      if (noteVal) {
+        state.notes[key][state.editingDay] = noteVal;
+      } else {
+        delete state.notes[key][state.editingDay];
+      }
+
+      saveState();
+      renderAll();
+      closeModal();
+      showToast(`Đã lưu cập nhật ngày ${state.editingDay}/${state.month}`);
+    }
+
+    // Hiển thị thông báo nhỏ
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      document.getElementById('toast-msg').textContent = msg;
+      toast.classList.remove('opacity-0');
+      toast.classList.add('opacity-100');
+      clearTimeout(window._toastTimer);
+      window._toastTimer = setTimeout(() => {
+        toast.classList.remove('opacity-100');
+        toast.classList.add('opacity-0');
+      }, 2600);
+    }
+
+    // Xử lý khi người dùng tải ảnh thật lên & gọi Gemini Vision API
+    async function handleImageUpload(event) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      const dropzone = document.getElementById('dropzone');
+      const scanningBox = document.getElementById('scanning-box');
+      const previewThumb = document.getElementById('preview-thumb');
+
+      // Đọc file sang base64 để preview và gửi API
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        const dataUrl = e.target.result;
+        const base64Data = dataUrl.split(',')[1];
+        const mimeType = file.type || 'image/png';
+
+        previewThumb.src = dataUrl;
+        previewThumb.classList.remove('hidden');
+        dropzone.classList.add('hidden');
+        scanningBox.classList.remove('hidden');
+
+        document.getElementById('scan-title').textContent = "Gemini AI đang đọc ảnh...";
+        document.getElementById('scan-subtitle').textContent = "Đang nhận diện tháng, ngày và mã ca làm...";
+
+        try {
+          const extracted = await extractScheduleWithGemini(base64Data, mimeType);
+          if (extracted && extracted.shifts && Object.keys(extracted.shifts).length > 0) {
+            state.year = extracted.year || state.year;
+            state.month = extracted.month || state.month;
+            const key = getMonthKey();
+            state.schedules[key] = extracted.shifts;
+            saveState();
+            renderAll();
+            showToast(`Đã cập nhật lịch Tháng ${state.month}/${state.year}!`);
+          } else {
+            showToast("Không nhận diện được lịch trong ảnh, vui lòng thử ảnh rõ nét hơn.");
+          }
+        } catch (err) {
+          console.error("Lỗi quét ảnh:", err);
+          showToast("Không thể kết nối AI quét ảnh lúc này. Bạn có thể chạm vào ngày để nhập tay.");
+        } finally {
+          scanningBox.classList.add('hidden');
+          dropzone.classList.remove('hidden');
+          event.target.value = '';
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // Gọi Gemini API với Structured JSON Output để bóc tách ảnh lịch
+    async function extractScheduleWithGemini(base64Data, mimeType) {
+      const apiKey = ""; // Runtime tự động cung cấp khi chạy
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+      const payload = {
+        contents: [{
+          role: "user",
+          parts: [
+            {
+              text: "Analyze this work schedule calendar image. Extract the month (1-12), year (e.g., 2026), and a list of days with their shift codes (such as C, C2, B, AL, OFF, etc.). Ignore shift time legends, only extract the short code shown under each day number."
+            },
+            {
+              inlineData: {
+                mimeType: mimeType,
+                data: base64Data
+              }
+            }
+          ]
+        }],
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: "OBJECT",
+            properties: {
+              month: { type: "INTEGER" },
+              year: { type: "INTEGER" },
+              items: {
+                type: "ARRAY",
+                items: {
+                  type: "OBJECT",
+                  properties: {
+                    day: { type: "INTEGER" },
+                    code: { type: "STRING" }
+                  },
+                  required: ["day", "code"]
+                }
+              }
+            },
+            required: ["month", "year", "items"]
+          }
+        }
+      };
+
+      // Exponential backoff retry
+      let delay = 1000;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const result = await response.json();
+          const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (!text) return null;
+          const parsed = JSON.parse(text);
+          const shiftsMap = {};
+          (parsed.items || []).forEach(entry => {
+            if (entry.day >= 1 && entry.day <= 31 && entry.code) {
+              shiftsMap[entry.day] = entry.code.trim().toUpperCase();
+            }
+          });
+          return {
+            month: parsed.month,
+            year: parsed.year,
+            shifts: shiftsMap
+          };
+        } catch (err) {
+          if (attempt === 2) throw err;
+          await new Promise(r => setTimeout(r, delay));
+          delay *= 2;
+        }
+      }
+      return null;
+    }
+
+    // Khởi chạy ban đầu
+    loadState();
+    renderAll();
+    lucide.createIcons();
+  </script>
+</body>
+</html>

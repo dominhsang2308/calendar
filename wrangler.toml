@@ -1,0 +1,7 @@
+name = "lich-chung"
+compatibility_date = "2025-01-01"
+pages_build_output_dir = "."
+
+# Khi deploy lên Cloudflare Pages, vào Dashboard -> Settings -> Bindings
+# để gắn KV Namespace với tên biến: LICH_KV
+# và Environment Variables với biến: GEMINI_API_KEY
