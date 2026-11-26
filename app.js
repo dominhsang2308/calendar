@@ -773,7 +773,7 @@ function showToast(msg) {
 }
 
 // Nén ảnh trước khi gửi lên /api/scan để nhẹ mạng 4G và tránh quá dung lượng
-function compressImageFile(file, maxDim = 1400, quality = 0.82) {
+function compressImageFile(file, maxDim = 1024, quality = 0.78) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('Không thể đọc file ảnh.'));

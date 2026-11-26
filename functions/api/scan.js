@@ -30,7 +30,17 @@ export async function onRequestPost(context) {
         body: bodyText
       });
       const resText = await proxyRes.text();
-      return new Response(resText, {
+      let payloadOut = resText;
+      if (!proxyRes.ok) {
+        try {
+          JSON.parse(resText);
+        } catch {
+          payloadOut = JSON.stringify({
+            error: `Proxy phản hồi lỗi HTTP ${proxyRes.status} (có thể quá thời gian chờ).`
+          });
+        }
+      }
+      return new Response(payloadOut, {
         status: proxyRes.status,
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
