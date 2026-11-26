@@ -104,41 +104,60 @@ export async function onRequestPost(context) {
 
   const primaryModel = String(env.GEMINI_MODEL || 'gemini-3.8-flash').trim();
   const modelsToTry = Array.from(
-    new Set([primaryModel, 'gemini-3.8-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash'])
+    new Set([primaryModel, 'gemini-3.8-flash', 'gemini-3.8-flash-preview', 'gemini-3-flash-preview'])
   );
 
   let lastStatus = 500;
   let lastErrorMsg = '';
+  const triedErrors = [];
 
-  async function callGeminiModel(model) {
+  async function callGeminiModel(model, useSchema = true) {
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const reqPayload = useSchema
+      ? payload
+      : {
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text:
+                    'Analyze this work schedule calendar image. Return ONLY valid JSON with format {"month": 11, "year": 2026, "items": [{"day": 1, "code": "C"}]}. Extract month (1-12), year, and short shift codes (C, C2, B, AL, OFF, etc.) under each day number. Ignore legend descriptions.'
+                },
+                payload.contents[0].parts[1]
+              ]
+            }
+          ],
+          generationConfig: { responseMimeType: 'application/json' }
+        };
     return fetch(apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(reqPayload)
     });
   }
 
-  async function discoverFlashModel() {
+  async function discoverFlashModels() {
     try {
       const listRes = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`
       );
-      if (!listRes.ok) return null;
+      if (!listRes.ok) return [];
       const listData = await listRes.json();
-      const candidates = (listData.models || []).filter(
-        (m) =>
-          Array.isArray(m.supportedGenerationMethods) &&
-          m.supportedGenerationMethods.includes('generateContent') &&
-          /flash/i.test(m.name || '')
-      );
-      if (candidates.length === 0) return null;
-      // Ưu tiên model flash mới nhất (không phải lite/8b nếu có bản chuẩn)
-      const preferred =
-        candidates.find((m) => /flash$/i.test(m.name)) || candidates[candidates.length - 1];
-      return String(preferred.name || '').replace(/^models\//, '');
+      const candidates = (listData.models || [])
+        .filter(
+          (m) =>
+            Array.isArray(m.supportedGenerationMethods) &&
+            m.supportedGenerationMethods.includes('generateContent') &&
+            /flash/i.test(m.name || '') &&
+            !/tts|audio|live|thinking|image/i.test(m.name || '')
+        )
+        .map((m) => String(m.name || '').replace(/^models\//, ''));
+
+      // Sắp xếp ưu tiên model phiên bản mới nhất lên đầu
+      return candidates.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
     } catch {
-      return null;
+      return [];
     }
   }
 
@@ -175,44 +194,56 @@ export async function onRequestPost(context) {
     });
   }
 
-  for (const model of modelsToTry) {
-    const res = await callGeminiModel(model);
-    if (res.ok) {
-      return parseGeminiSuccess(res);
-    }
-
-    lastStatus = res.status;
+  async function extractErrMsg(res) {
     const rawErr = await res.text();
     try {
       const parsedErr = JSON.parse(rawErr);
-      lastErrorMsg = parsedErr?.error?.message || rawErr;
+      return parsedErr?.error?.message || rawErr;
     } catch {
-      lastErrorMsg = rawErr;
-    }
-
-    // Nếu lỗi là API key không hợp lệ thì dừng ngay để báo rõ
-    if (/api key/i.test(lastErrorMsg)) {
-      break;
+      return rawErr;
     }
   }
 
-  // Nếu các model mặc định đều báo 404 (đã ngừng hỗ trợ), tự động tìm model Flash đang hoạt động
-  if (lastStatus === 404) {
-    const discovered = await discoverFlashModel();
-    if (discovered && !modelsToTry.includes(discovered)) {
-      const res = await callGeminiModel(discovered);
-      if (res.ok) {
-        return parseGeminiSuccess(res);
-      }
-      lastStatus = res.status;
-      lastErrorMsg = await res.text();
+  const triedSet = new Set();
+  async function tryModel(model) {
+    if (!model || triedSet.has(model)) return null;
+    triedSet.add(model);
+
+    let res = await callGeminiModel(model, true);
+    if (res.ok) return parseGeminiSuccess(res);
+
+    let msg = await extractErrMsg(res);
+    // Nếu 400 không phải do API key, thử gọi lại không dùng responseSchema
+    if (res.status === 400 && !/api key/i.test(msg)) {
+      res = await callGeminiModel(model, false);
+      if (res.ok) return parseGeminiSuccess(res);
+      msg = await extractErrMsg(res);
+    }
+
+    lastStatus = res.status;
+    lastErrorMsg = msg;
+    triedErrors.push(`${model}(${res.status}): ${msg.slice(0, 90)}`);
+    return null;
+  }
+
+  for (const model of modelsToTry) {
+    const okRes = await tryModel(model);
+    if (okRes) return okRes;
+    if (/api key/i.test(lastErrorMsg)) break;
+  }
+
+  if (!/api key/i.test(lastErrorMsg)) {
+    const discoveredList = await discoverFlashModels();
+    for (const model of discoveredList.slice(0, 6)) {
+      const okRes = await tryModel(model);
+      if (okRes) return okRes;
     }
   }
 
   return jsonResponse(
     {
-      error: `Lỗi gọi Gemini API (${lastStatus}): ${lastErrorMsg.slice(0, 160)}`,
-      detail: lastErrorMsg.slice(0, 300)
+      error: `Lỗi gọi Gemini API (${lastStatus}): ${(triedErrors[0] || lastErrorMsg).slice(0, 180)}`,
+      detail: triedErrors.join(' | ').slice(0, 400)
     },
     lastStatus >= 400 && lastStatus < 600 ? lastStatus : 502
   );
