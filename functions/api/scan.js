@@ -19,6 +19,29 @@ function normalizeRoomCode(raw) {
 export async function onRequestPost(context) {
   const { request, env } = context;
 
+  // Nếu cấu hình SCAN_PROXY_URL (ví dụ Vercel đặt tại Mỹ iad1), chuyển tiếp request để tránh chặn vùng ở node biên
+  const proxyUrl = String(env.SCAN_PROXY_URL || '').trim();
+  if (proxyUrl) {
+    try {
+      const bodyText = await request.text();
+      const proxyRes = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: bodyText
+      });
+      const resText = await proxyRes.text();
+      return new Response(resText, {
+        status: proxyRes.status,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store'
+        }
+      });
+    } catch (err) {
+      return jsonResponse({ error: `Không kết nối được SCAN_PROXY_URL: ${err.message}` }, 502);
+    }
+  }
+
   const apiKey = String(env.GEMINI_API_KEY || '').trim();
   if (!apiKey) {
     return jsonResponse(
